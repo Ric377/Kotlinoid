@@ -1,5 +1,6 @@
 package com.example.kotlinoid
 
+import android.app.Activity
 import android.graphics.RectF
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -19,11 +20,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -41,7 +45,9 @@ object AppColors {
         "paddle" to Color(0xFF212121),
         "ball" to Color(0xFFD32F2F),
         "textPrimary" to Color(0xFF424242),
-        "textHint" to Color(0xFF757575)
+        "textHint" to Color(0xFF757575),
+        "button" to Color(0xFF424242),
+        "buttonText" to Color(0xFFFFFFFF)
     )
 
     val DarkPalette = mapOf(
@@ -49,11 +55,51 @@ object AppColors {
         "paddle" to Color(0xFFE0E0E0),
         "ball" to Color(0xFFEF5350),
         "textPrimary" to Color(0xFFFFFFFF),
-        "textHint" to Color(0xFFBDBDBD)
+        "textHint" to Color(0xFFBDBDBD),
+        "button" to Color(0xFFE0E0E0),
+        "buttonText" to Color(0xFF121212)
     )
 
     val brickSet1 = listOf(Color(0xFFD32F2F), Color(0xFFD32F2F), Color(0xFFF57C00), Color(0xFFF57C00))
     val brickSet2 = listOf(Color(0xFFFBC02D), Color(0xFFFBC02D), Color(0xFF388E3C), Color(0xFF388E3C))
+}
+
+/**
+ * Хранит дизайны уровней.
+ */
+object Levels {
+    val maps = listOf(
+        listOf(
+            "XXXXXXXXXX",
+            "X-X-XX-X-X",
+            "XXXXXXXXXX",
+            "X-X-XX-X-X",
+            "XXXXXXXXXX",
+            "X-X-XX-X-X",
+            "XXXXXXXXXX",
+            "X-X-XX-X-X"
+        ),
+        listOf(
+            "----XX----",
+            "---XXXX---",
+            "--XXXXXX--",
+            "-XXXXXXXX-",
+            "XXXXXXXXXX",
+            "---XXXX---",
+            "---XXXX---",
+            "---XXXX---"
+        ),
+        listOf(
+            "X-X-X-X-X-",
+            "-X-X-X-X-X",
+            "X-X-X-X-X-",
+            "-X-X-X-X-X",
+            "X-X-X-X-X-",
+            "-X-X-X-X-X",
+            "X-X-X-X-X-",
+            "-X-X-X-X-X"
+        )
+    )
 }
 
 /**
@@ -66,6 +112,7 @@ data class GameState(
     val score: Int = 0,
     val lives: Int = 3,
     val status: GameStatus = GameStatus.READY,
+    val currentLevel: Int = 1,
     val gameInitialized: Boolean = false
 )
 
@@ -99,6 +146,7 @@ fun GameScreen(colors: Map<String, Color>) {
     var gameState by remember { mutableStateOf(GameState()) }
     var canvasSize by remember { mutableStateOf(Size.Zero) }
     val textMeasurer = rememberTextMeasurer()
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -149,14 +197,42 @@ fun GameScreen(colors: Map<String, Color>) {
                                 gameState = gameState.copy(status = GameStatus.RUNNING)
                             }
                         }
-                        else -> {}
+                        GameStatus.LEVEL_COMPLETE, GameStatus.GAME_WON -> {
+                            val nextLevel = gameState.currentLevel + 1
+                            gameState = if (nextLevel > Levels.maps.size && gameState.status != GameStatus.GAME_WON) {
+                                gameState.copy(status = GameStatus.GAME_WON)
+                            } else if (gameState.status != GameStatus.GAME_WON) {
+                                initializeLevel(canvasSize, nextLevel).copy(
+                                    score = gameState.score,
+                                    lives = gameState.lives
+                                )
+                            } else {
+                                initializeLevel(canvasSize, 1)
+                            }
+                        }
+                        GameStatus.GAME_OVER -> {
+                            val buttonWidth = size.width / 2.5f
+                            val buttonHeight = 150f
+                            val buttonY = size.height * 0.6f
+                            val restartButtonX = size.width / 2 - buttonWidth - 20f
+                            val exitButtonX = size.width / 2 + 20f
+
+                            val restartRect = Rect(restartButtonX, buttonY, restartButtonX + buttonWidth, buttonY + buttonHeight)
+                            val exitRect = Rect(exitButtonX, buttonY, exitButtonX + buttonWidth, buttonY + buttonHeight)
+
+                            if (restartRect.contains(offset)) {
+                                gameState = initializeLevel(canvasSize, 1)
+                            } else if (exitRect.contains(offset)) {
+                                (context as? Activity)?.finish()
+                            }
+                        }
                     }
                 }
             }
     ) {
         if (!gameState.gameInitialized) {
             canvasSize = size
-            gameState = initializeGame(size)
+            gameState = initializeLevel(size, 1)
         }
         drawGame(this, gameState, textMeasurer, colors)
     }
@@ -167,7 +243,6 @@ fun GameScreen(colors: Map<String, Color>) {
  */
 private fun updateGameState(currentState: GameState, canvasSize: Size): GameState {
     var currentBall = currentState.ball ?: return currentState
-    val paddle = currentState.paddle ?: return currentState
     var score = currentState.score
     var lives = currentState.lives
 
@@ -191,15 +266,11 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
 
     if (currentBall.cy + currentBall.radius > canvasHeight) {
         lives--
-        if (lives <= 0) {
-            return currentState.copy(lives = 0, status = GameStatus.GAME_OVER)
+        return if (lives <= 0) {
+            currentState.copy(lives = 0, status = GameStatus.GAME_OVER)
         } else {
             val newBall = currentBall.copy(cx = canvasWidth / 2, cy = canvasHeight / 2)
-            return currentState.copy(
-                ball = newBall,
-                lives = lives,
-                status = GameStatus.READY
-            )
+            currentState.copy(ball = newBall, lives = lives, status = GameStatus.READY)
         }
     }
 
@@ -210,7 +281,7 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
         currentBall.cy + currentBall.radius
     )
 
-    if (currentBall.dy > 0 && ballRect.intersect(paddle.rect)) {
+    if (currentBall.dy > 0 && ballRect.intersect(currentState.paddle!!.rect)) {
         currentBall = currentBall.copy(dy = -currentBall.dy)
     }
 
@@ -229,20 +300,30 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
         currentBall = currentBall.copy(dy = -currentBall.dy)
     }
 
+    if (newBricks.none { it.isVisible }) {
+        val nextLevel = currentState.currentLevel + 1
+        return if (nextLevel > Levels.maps.size) {
+            currentState.copy(status = GameStatus.GAME_WON, bricks = newBricks, score = score)
+        } else {
+            currentState.copy(status = GameStatus.LEVEL_COMPLETE, bricks = newBricks, score = score)
+        }
+    }
+
     return currentState.copy(ball = currentBall, bricks = newBricks, score = score, lives = lives)
 }
 
 
 /**
- * Инициализирует начальное состояние игры.
+ * Инициализирует состояние игры для конкретного уровня.
  */
-private fun initializeGame(canvasSize: Size): GameState {
+private fun initializeLevel(canvasSize: Size, level: Int): GameState {
     val canvasWidth = canvasSize.width
     val canvasHeight = canvasSize.height
     val bricks = mutableListOf<Brick>()
+    val levelMap = Levels.maps[level - 1]
 
-    val numRows = 8
-    val numBricksPerRow = 10
+    val numRows = levelMap.size
+    val numBricksPerRow = levelMap[0].length
     val brickSpacing = canvasWidth * 0.01f
     val brickTopOffset = canvasHeight * 0.15f
     val spaceForBricks = canvasWidth - (numBricksPerRow + 1) * brickSpacing
@@ -254,8 +335,10 @@ private fun initializeGame(canvasSize: Size): GameState {
     for (i in 0 until numRows) {
         var currentX = brickSpacing
         for (j in 0 until numBricksPerRow) {
-            val brickRect = androidx.compose.ui.geometry.Rect(left = currentX, top = currentY, right = currentX + brickWidth, bottom = currentY + brickHeight)
-            bricks.add(Brick(rect = brickRect.toRectF(), color = colors[i % colors.size]))
+            if (levelMap[i][j] == 'X') {
+                val brickRect = Rect(left = currentX, top = currentY, right = currentX + brickWidth, bottom = currentY + brickHeight)
+                bricks.add(Brick(rect = brickRect.toRectF(), color = colors[i % colors.size]))
+            }
             currentX += brickWidth + brickSpacing
         }
         currentY += brickHeight + brickSpacing
@@ -265,13 +348,20 @@ private fun initializeGame(canvasSize: Size): GameState {
     val paddleHeight = canvasHeight / 40
     val paddleX = (canvasWidth - paddleWidth) / 2
     val paddleY = canvasHeight - paddleHeight * 6
-    val paddleRect = androidx.compose.ui.geometry.Rect(paddleX, paddleY, paddleX + paddleWidth, paddleY + paddleHeight)
+    val paddleRect = Rect(paddleX, paddleY, paddleX + paddleWidth, paddleY + paddleHeight)
     val paddle = Paddle(rect = paddleRect.toRectF())
 
     val ballRadius = canvasWidth / 30
     val ball = Ball(cx = canvasWidth / 2, cy = canvasHeight / 2, radius = ballRadius, dx = 8f, dy = -8f)
 
-    return GameState(bricks = bricks, ball = ball, paddle = paddle, gameInitialized = true)
+    return GameState(
+        bricks = bricks,
+        ball = ball,
+        paddle = paddle,
+        currentLevel = level,
+        gameInitialized = true,
+        status = GameStatus.READY
+    )
 }
 
 /**
@@ -280,21 +370,11 @@ private fun initializeGame(canvasSize: Size): GameState {
 private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: TextMeasurer, colors: Map<String, Color>) {
     gameState.bricks.forEach { brick ->
         if (brick.isVisible) {
-            drawScope.drawRoundRect(
-                color = brick.color,
-                topLeft = Offset(brick.rect.left, brick.rect.top),
-                size = Size(brick.rect.width(), brick.rect.height()),
-                cornerRadius = CornerRadius(8f, 8f)
-            )
+            drawScope.drawRoundRect(color = brick.color, topLeft = Offset(brick.rect.left, brick.rect.top), size = Size(brick.rect.width(), brick.rect.height()), cornerRadius = CornerRadius(8f, 8f))
         }
     }
     gameState.paddle?.let { paddle ->
-        drawScope.drawRoundRect(
-            color = colors["paddle"]!!,
-            topLeft = Offset(paddle.rect.left, paddle.rect.top),
-            size = Size(paddle.rect.width(), paddle.rect.height()),
-            cornerRadius = CornerRadius(15f, 15f)
-        )
+        drawScope.drawRoundRect(color = colors["paddle"]!!, topLeft = Offset(paddle.rect.left, paddle.rect.top), size = Size(paddle.rect.width(), paddle.rect.height()), cornerRadius = CornerRadius(15f, 15f))
     }
     gameState.ball?.let { ball ->
         drawScope.drawCircle(color = colors["ball"]!!, radius = ball.radius, center = Offset(ball.cx, ball.cy))
@@ -302,25 +382,11 @@ private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: T
 
     val topOffset = 40f
 
-    drawScope.drawText(
-        textMeasurer = textMeasurer,
-        text = "Score: ${gameState.score}",
-        topLeft = Offset(40f, topOffset),
-        style = TextStyle(fontSize = 20.sp, color = colors["textPrimary"]!!)
-    )
+    drawScope.drawText(textMeasurer = textMeasurer, text = "Score: ${gameState.score}", topLeft = Offset(40f, topOffset), style = TextStyle(fontSize = 20.sp, color = colors["textPrimary"]!!))
 
     val heartIcon = "❤️"
-    val livesText = buildString {
-        repeat(gameState.lives) {
-            append(heartIcon)
-        }
-    }
-    drawScope.drawText(
-        textMeasurer = textMeasurer,
-        text = livesText,
-        topLeft = Offset(40f, topOffset + 65f),
-        style = TextStyle(fontSize = 20.sp)
-    )
+    val livesText = buildString { repeat(gameState.lives) { append(heartIcon) } }
+    drawScope.drawText(textMeasurer = textMeasurer, text = livesText, topLeft = Offset(40f, topOffset + 65f), style = TextStyle(fontSize = 20.sp))
 
     val iconLeft = drawScope.size.width - 80f
     val iconTop = topOffset
@@ -333,52 +399,58 @@ private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: T
 
     if (gameState.status == GameStatus.PAUSED) {
         val path = Path().apply {
-            moveTo(iconLeft, iconTop)
-            lineTo(iconLeft, iconTop + iconSize)
-            lineTo(iconLeft + iconSize * 0.8f, iconTop + iconSize / 2)
-            close()
+            moveTo(iconLeft, iconTop); lineTo(iconLeft, iconTop + iconSize); lineTo(iconLeft + iconSize * 0.8f, iconTop + iconSize / 2); close()
         }
         drawScope.drawPath(path, color = colors["paddle"]!!)
     }
 
+    val overlayAlpha = 0.8f
+    val center = Offset(drawScope.size.width / 2, drawScope.size.height / 2)
+
+    fun drawOverlayText(text: String, style: TextStyle) {
+        val layoutResult = textMeasurer.measure(text, style)
+        drawScope.drawText(layoutResult, topLeft = Offset(center.x - layoutResult.size.width / 2, center.y - layoutResult.size.height / 2))
+    }
+
+    fun drawCenteredText(text: String, style: TextStyle, yOffset: Float, xOffset: Float = 0f) {
+        val layoutResult = textMeasurer.measure(text, style)
+        drawScope.drawText(layoutResult, topLeft = Offset(center.x - layoutResult.size.width / 2 + xOffset, yOffset))
+    }
+
     when (gameState.status) {
         GameStatus.READY -> {
-            val text = "Tap to Start"
-            val textStyle = TextStyle(fontSize = 28.sp, color = colors["textHint"]!!)
-            val textLayoutResult = textMeasurer.measure(text, textStyle)
-            drawScope.drawText(
-                textLayoutResult = textLayoutResult,
-                topLeft = Offset(
-                    x = (drawScope.size.width - textLayoutResult.size.width) / 2,
-                    y = drawScope.size.height * 0.65f
-                )
-            )
+            drawCenteredText("Level ${gameState.currentLevel}", TextStyle(fontSize = 28.sp, color = colors["textHint"]!!), drawScope.size.height * 0.6f)
+            drawCenteredText("Tap to Start", TextStyle(fontSize = 28.sp, color = colors["textHint"]!!), drawScope.size.height * 0.65f)
         }
         GameStatus.GAME_OVER -> {
-            drawScope.drawRect(color = colors["background"]!!.copy(alpha = 0.8f))
-            val text = "Game Over"
-            val textStyle = TextStyle(fontSize = 48.sp, color = colors["ball"]!!)
-            val textLayoutResult = textMeasurer.measure(text, textStyle)
-            drawScope.drawText(
-                textLayoutResult = textLayoutResult,
-                topLeft = Offset(
-                    x = (drawScope.size.width - textLayoutResult.size.width) / 2,
-                    y = (drawScope.size.height - textLayoutResult.size.height) / 2
-                )
-            )
+            drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha))
+            drawOverlayText("Game Over", TextStyle(fontSize = 48.sp, color = colors["ball"]!!))
+
+            val buttonWidth = drawScope.size.width / 2.5f
+            val buttonHeight = 150f
+            val buttonY = drawScope.size.height * 0.6f
+            val restartButtonX = center.x - buttonWidth - 20f
+            val exitButtonX = center.x + 20f
+
+            drawScope.drawRoundRect(colors["button"]!!, topLeft = Offset(restartButtonX, buttonY), size = Size(buttonWidth, buttonHeight), cornerRadius = CornerRadius(15f, 15f))
+            drawScope.drawRoundRect(colors["button"]!!, topLeft = Offset(exitButtonX, buttonY), size = Size(buttonWidth, buttonHeight), cornerRadius = CornerRadius(15f, 15f))
+
+            drawCenteredText("Restart", TextStyle(fontSize = 24.sp, color = colors["buttonText"]!!), buttonY + buttonHeight / 2 - 30, (restartButtonX - center.x) + buttonWidth / 2)
+            drawCenteredText("Exit", TextStyle(fontSize = 24.sp, color = colors["buttonText"]!!), buttonY + buttonHeight / 2 - 30, (exitButtonX - center.x) + buttonWidth / 2)
         }
         GameStatus.PAUSED -> {
-            drawScope.drawRect(color = colors["background"]!!.copy(alpha = 0.8f))
-            val text = "Paused"
-            val textStyle = TextStyle(fontSize = 48.sp, color = colors["textPrimary"]!!)
-            val textLayoutResult = textMeasurer.measure(text, textStyle)
-            drawScope.drawText(
-                textLayoutResult = textLayoutResult,
-                topLeft = Offset(
-                    x = (drawScope.size.width - textLayoutResult.size.width) / 2,
-                    y = (drawScope.size.height - textLayoutResult.size.height) / 2
-                )
-            )
+            drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha))
+            drawOverlayText("Paused", TextStyle(fontSize = 48.sp, color = colors["textPrimary"]!!))
+        }
+        GameStatus.LEVEL_COMPLETE -> {
+            drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha))
+            drawOverlayText("Level ${gameState.currentLevel} Complete!", TextStyle(fontSize = 36.sp, color = colors["textPrimary"]!!))
+            drawCenteredText("Tap to continue", TextStyle(fontSize = 24.sp, color = colors["textHint"]!!), drawScope.size.height * 0.65f)
+        }
+        GameStatus.GAME_WON -> {
+            drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha))
+            drawOverlayText("You Win!", TextStyle(fontSize = 48.sp, color = AppColors.brickSet2[3]))
+            drawCenteredText("Tap to play again", TextStyle(fontSize = 24.sp, color = colors["textHint"]!!), drawScope.size.height * 0.65f)
         }
         else -> {}
     }

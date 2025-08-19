@@ -37,5 +37,7 @@ enum class GameStatus {
     READY,
     RUNNING,
     PAUSED,
-    GAME_OVER
+    GAME_OVER,
+    LEVEL_COMPLETE,
+    GAME_WON
 }
