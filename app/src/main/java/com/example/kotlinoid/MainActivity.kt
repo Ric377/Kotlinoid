@@ -20,6 +20,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.sp
 import com.example.kotlinoid.ui.theme.KotlinoidTheme
 import kotlinx.coroutines.delay
 
@@ -27,9 +32,11 @@ import kotlinx.coroutines.delay
  * Содержит полное состояние игрового поля в определенный момент времени.
  */
 data class GameState(
-    val bricks: List<Brick> = emptyList(), // <-- Изменили MutableList на List
+    val bricks: List<Brick> = emptyList(),
     val ball: Ball? = null,
     val paddle: Paddle? = null,
+    val score: Int = 0,
+    val lives: Int = 3,
     val gameInitialized: Boolean = false
 )
 
@@ -59,6 +66,7 @@ class MainActivity : ComponentActivity() {
 fun GameScreen() {
     var gameState by remember { mutableStateOf(GameState()) }
     var canvasSize by remember { mutableStateOf(Size.Zero) }
+    val textMeasurer = rememberTextMeasurer()
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -93,7 +101,7 @@ fun GameScreen() {
             canvasSize = size
             gameState = initializeGame(size)
         }
-        drawGame(this, gameState)
+        drawGame(this, gameState, textMeasurer)
     }
 }
 
@@ -102,8 +110,9 @@ fun GameScreen() {
  */
 private fun updateGameState(currentState: GameState, canvasSize: Size): GameState {
     var currentBall = currentState.ball ?: return currentState
-    var currentBricks = currentState.bricks
     val paddle = currentState.paddle ?: return currentState
+    var score = currentState.score
+    var lives = currentState.lives
 
     currentBall = currentBall.copy(
         cx = currentBall.cx + currentBall.dx,
@@ -122,6 +131,7 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
     }
 
     if (currentBall.cy + currentBall.radius > canvasHeight) {
+        lives--
         currentBall = currentBall.copy(cx = canvasWidth / 2, cy = canvasHeight / 2)
     }
 
@@ -137,9 +147,10 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
     }
 
     var brickHit = false
-    val newBricks = currentBricks.map { brick ->
+    val newBricks = currentState.bricks.map { brick ->
         if (!brickHit && brick.isVisible && ballRect.intersect(brick.rect)) {
             brickHit = true
+            score += 100
             brick.copy(isVisible = false)
         } else {
             brick
@@ -150,7 +161,7 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
         currentBall = currentBall.copy(dy = -currentBall.dy)
     }
 
-    return currentState.copy(ball = currentBall, bricks = newBricks)
+    return currentState.copy(ball = currentBall, bricks = newBricks, score = score, lives = lives)
 }
 
 
@@ -165,7 +176,7 @@ private fun initializeGame(canvasSize: Size): GameState {
     val numRows = 8
     val numBricksPerRow = 10
     val brickSpacing = canvasWidth * 0.01f
-    val brickTopOffset = canvasHeight * 0.05f
+    val brickTopOffset = canvasHeight * 0.1f // Сдвинем кирпичи чуть ниже для текста
     val spaceForBricks = canvasWidth - (numBricksPerRow + 1) * brickSpacing
     val brickWidth = spaceForBricks / numBricksPerRow
     val brickHeight = canvasHeight * 0.025f
@@ -198,7 +209,7 @@ private fun initializeGame(canvasSize: Size): GameState {
 /**
  * Отрисовывает все игровые объекты на Canvas.
  */
-private fun drawGame(drawScope: DrawScope, gameState: GameState) {
+private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: TextMeasurer) {
     gameState.bricks.forEach { brick ->
         if (brick.isVisible) {
             drawScope.drawRect(color = brick.color, topLeft = Offset(brick.rect.left, brick.rect.top), size = Size(brick.rect.width(), brick.rect.height()))
@@ -210,6 +221,20 @@ private fun drawGame(drawScope: DrawScope, gameState: GameState) {
     gameState.ball?.let { ball ->
         drawScope.drawCircle(color = Color.Magenta, radius = ball.radius, center = Offset(ball.cx, ball.cy))
     }
+
+    drawScope.drawText(
+        textMeasurer = textMeasurer,
+        text = "Score: ${gameState.score}",
+        topLeft = Offset(20f, 10f),
+        style = TextStyle(fontSize = 20.sp, color = Color.Black)
+    )
+
+    drawScope.drawText(
+        textMeasurer = textMeasurer,
+        text = "Lives: ${gameState.lives}",
+        topLeft = Offset(drawScope.size.width - 150f, 10f),
+        style = TextStyle(fontSize = 20.sp, color = Color.Red)
+    )
 }
 
 /**
