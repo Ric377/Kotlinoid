@@ -4,9 +4,10 @@ import android.graphics.RectF
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -16,9 +17,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextMeasurer
@@ -28,6 +31,30 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import com.example.kotlinoid.ui.theme.KotlinoidTheme
 import kotlinx.coroutines.delay
+
+/**
+ * Хранит цветовые палитры для светлой и тёмной тем.
+ */
+object AppColors {
+    val LightPalette = mapOf(
+        "background" to Color(0xFFF5F5F5),
+        "paddle" to Color(0xFF212121),
+        "ball" to Color(0xFFD32F2F),
+        "textPrimary" to Color(0xFF424242),
+        "textHint" to Color(0xFF757575)
+    )
+
+    val DarkPalette = mapOf(
+        "background" to Color(0xFF121212),
+        "paddle" to Color(0xFFE0E0E0),
+        "ball" to Color(0xFFEF5350),
+        "textPrimary" to Color(0xFFFFFFFF),
+        "textHint" to Color(0xFFBDBDBD)
+    )
+
+    val brickSet1 = listOf(Color(0xFFD32F2F), Color(0xFFD32F2F), Color(0xFFF57C00), Color(0xFFF57C00))
+    val brickSet2 = listOf(Color(0xFFFBC02D), Color(0xFFFBC02D), Color(0xFF388E3C), Color(0xFF388E3C))
+}
 
 /**
  * Содержит полное состояние игрового поля в определенный момент времени.
@@ -50,11 +77,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             KotlinoidTheme {
+                val isDarkTheme = isSystemInDarkTheme()
+                val colors = if (isDarkTheme) AppColors.DarkPalette else AppColors.LightPalette
+
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color.White
+                    color = colors["background"]!!
                 ) {
-                    GameScreen()
+                    GameScreen(colors)
                 }
             }
         }
@@ -65,7 +95,7 @@ class MainActivity : ComponentActivity() {
  * Основной Composable-компонент, отображающий игровое поле.
  */
 @Composable
-fun GameScreen() {
+fun GameScreen(colors: Map<String, Color>) {
     var gameState by remember { mutableStateOf(GameState()) }
     var canvasSize by remember { mutableStateOf(Size.Zero) }
     val textMeasurer = rememberTextMeasurer()
@@ -84,6 +114,7 @@ fun GameScreen() {
             .fillMaxSize()
             .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
+                    if (gameState.status == GameStatus.PAUSED) return@detectDragGestures
                     val oldPaddle = gameState.paddle ?: return@detectDragGestures
                     val paddleWidth = oldPaddle.rect.width()
                     var newX = change.position.x - paddleWidth / 2
@@ -99,9 +130,26 @@ fun GameScreen() {
                 }
             }
             .pointerInput(gameState.status) {
-                detectTapGestures {
-                    if (gameState.status == GameStatus.READY) {
-                        gameState = gameState.copy(status = GameStatus.RUNNING)
+                detectTapGestures { offset ->
+                    val pauseIconLeft = size.width - 100f
+                    val pauseIconTop = 20f
+                    val isIconTapped = offset.x > pauseIconLeft && offset.y < pauseIconTop + 80f
+
+                    when (gameState.status) {
+                        GameStatus.READY -> {
+                            gameState = gameState.copy(status = GameStatus.RUNNING)
+                        }
+                        GameStatus.RUNNING -> {
+                            if (isIconTapped) {
+                                gameState = gameState.copy(status = GameStatus.PAUSED)
+                            }
+                        }
+                        GameStatus.PAUSED -> {
+                            if (isIconTapped) {
+                                gameState = gameState.copy(status = GameStatus.RUNNING)
+                            }
+                        }
+                        else -> {}
                     }
                 }
             }
@@ -110,7 +158,7 @@ fun GameScreen() {
             canvasSize = size
             gameState = initializeGame(size)
         }
-        drawGame(this, gameState, textMeasurer)
+        drawGame(this, gameState, textMeasurer, colors)
     }
 }
 
@@ -196,18 +244,18 @@ private fun initializeGame(canvasSize: Size): GameState {
     val numRows = 8
     val numBricksPerRow = 10
     val brickSpacing = canvasWidth * 0.01f
-    val brickTopOffset = canvasHeight * 0.1f // Сдвинем кирпичи чуть ниже для текста
+    val brickTopOffset = canvasHeight * 0.15f
     val spaceForBricks = canvasWidth - (numBricksPerRow + 1) * brickSpacing
     val brickWidth = spaceForBricks / numBricksPerRow
     val brickHeight = canvasHeight * 0.025f
-    val colors = listOf(Color.Red, Color.Red, Color.Yellow, Color.Yellow, Color.Green, Color.Green, Color.Blue, Color.Blue)
+    val colors = AppColors.brickSet1 + AppColors.brickSet2
 
     var currentY = brickTopOffset
     for (i in 0 until numRows) {
         var currentX = brickSpacing
         for (j in 0 until numBricksPerRow) {
             val brickRect = androidx.compose.ui.geometry.Rect(left = currentX, top = currentY, right = currentX + brickWidth, bottom = currentY + brickHeight)
-            bricks.add(Brick(rect = brickRect.toRectF(), color = colors[i]))
+            bricks.add(Brick(rect = brickRect.toRectF(), color = colors[i % colors.size]))
             currentX += brickWidth + brickSpacing
         }
         currentY += brickHeight + brickSpacing
@@ -216,7 +264,7 @@ private fun initializeGame(canvasSize: Size): GameState {
     val paddleWidth = canvasWidth / 5
     val paddleHeight = canvasHeight / 40
     val paddleX = (canvasWidth - paddleWidth) / 2
-    val paddleY = canvasHeight - paddleHeight * 3
+    val paddleY = canvasHeight - paddleHeight * 6
     val paddleRect = androidx.compose.ui.geometry.Rect(paddleX, paddleY, paddleX + paddleWidth, paddleY + paddleHeight)
     val paddle = Paddle(rect = paddleRect.toRectF())
 
@@ -229,57 +277,110 @@ private fun initializeGame(canvasSize: Size): GameState {
 /**
  * Отрисовывает все игровые объекты на Canvas.
  */
-private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: TextMeasurer) {
+private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: TextMeasurer, colors: Map<String, Color>) {
     gameState.bricks.forEach { brick ->
         if (brick.isVisible) {
-            drawScope.drawRect(color = brick.color, topLeft = Offset(brick.rect.left, brick.rect.top), size = Size(brick.rect.width(), brick.rect.height()))
+            drawScope.drawRoundRect(
+                color = brick.color,
+                topLeft = Offset(brick.rect.left, brick.rect.top),
+                size = Size(brick.rect.width(), brick.rect.height()),
+                cornerRadius = CornerRadius(8f, 8f)
+            )
         }
     }
     gameState.paddle?.let { paddle ->
-        drawScope.drawRect(color = Color.Black, topLeft = Offset(paddle.rect.left, paddle.rect.top), size = Size(paddle.rect.width(), paddle.rect.height()))
+        drawScope.drawRoundRect(
+            color = colors["paddle"]!!,
+            topLeft = Offset(paddle.rect.left, paddle.rect.top),
+            size = Size(paddle.rect.width(), paddle.rect.height()),
+            cornerRadius = CornerRadius(15f, 15f)
+        )
     }
     gameState.ball?.let { ball ->
-        drawScope.drawCircle(color = Color.Magenta, radius = ball.radius, center = Offset(ball.cx, ball.cy))
+        drawScope.drawCircle(color = colors["ball"]!!, radius = ball.radius, center = Offset(ball.cx, ball.cy))
     }
+
+    val topOffset = 40f
 
     drawScope.drawText(
         textMeasurer = textMeasurer,
         text = "Score: ${gameState.score}",
-        topLeft = Offset(20f, 10f),
-        style = TextStyle(fontSize = 20.sp, color = Color.Black)
+        topLeft = Offset(40f, topOffset),
+        style = TextStyle(fontSize = 20.sp, color = colors["textPrimary"]!!)
     )
+
+    val heartIcon = "❤️"
+    val livesText = buildString {
+        repeat(gameState.lives) {
+            append(heartIcon)
+        }
+    }
     drawScope.drawText(
         textMeasurer = textMeasurer,
-        text = "Lives: ${gameState.lives}",
-        topLeft = Offset(drawScope.size.width - 150f, 10f),
-        style = TextStyle(fontSize = 20.sp, color = Color.Red)
+        text = livesText,
+        topLeft = Offset(40f, topOffset + 65f),
+        style = TextStyle(fontSize = 20.sp)
     )
+
+    val iconLeft = drawScope.size.width - 80f
+    val iconTop = topOffset
+    val iconSize = 50f
+
+    if (gameState.status == GameStatus.RUNNING) {
+        drawScope.drawRoundRect(colors["paddle"]!!, topLeft = Offset(iconLeft, iconTop), size = Size(15f, iconSize), cornerRadius = CornerRadius(5f, 5f))
+        drawScope.drawRoundRect(colors["paddle"]!!, topLeft = Offset(iconLeft + 25f, iconTop), size = Size(15f, iconSize), cornerRadius = CornerRadius(5f, 5f))
+    }
+
+    if (gameState.status == GameStatus.PAUSED) {
+        val path = Path().apply {
+            moveTo(iconLeft, iconTop)
+            lineTo(iconLeft, iconTop + iconSize)
+            lineTo(iconLeft + iconSize * 0.8f, iconTop + iconSize / 2)
+            close()
+        }
+        drawScope.drawPath(path, color = colors["paddle"]!!)
+    }
 
     when (gameState.status) {
         GameStatus.READY -> {
-            val textLayoutResult = textMeasurer.measure("Tap to Start")
+            val text = "Tap to Start"
+            val textStyle = TextStyle(fontSize = 28.sp, color = colors["textHint"]!!)
+            val textLayoutResult = textMeasurer.measure(text, textStyle)
             drawScope.drawText(
                 textLayoutResult = textLayoutResult,
-                color = Color.Black,
                 topLeft = Offset(
                     x = (drawScope.size.width - textLayoutResult.size.width) / 2,
-                    y = (drawScope.size.height - textLayoutResult.size.height) / 2
+                    y = drawScope.size.height * 0.65f
                 )
             )
         }
         GameStatus.GAME_OVER -> {
-            drawScope.drawRect(color = Color.White.copy(alpha = 0.7f))
-            val textLayoutResult = textMeasurer.measure("Game Over")
+            drawScope.drawRect(color = colors["background"]!!.copy(alpha = 0.8f))
+            val text = "Game Over"
+            val textStyle = TextStyle(fontSize = 48.sp, color = colors["ball"]!!)
+            val textLayoutResult = textMeasurer.measure(text, textStyle)
             drawScope.drawText(
                 textLayoutResult = textLayoutResult,
-                color = Color.Red,
                 topLeft = Offset(
                     x = (drawScope.size.width - textLayoutResult.size.width) / 2,
                     y = (drawScope.size.height - textLayoutResult.size.height) / 2
                 )
             )
         }
-        GameStatus.RUNNING -> {}
+        GameStatus.PAUSED -> {
+            drawScope.drawRect(color = colors["background"]!!.copy(alpha = 0.8f))
+            val text = "Paused"
+            val textStyle = TextStyle(fontSize = 48.sp, color = colors["textPrimary"]!!)
+            val textLayoutResult = textMeasurer.measure(text, textStyle)
+            drawScope.drawText(
+                textLayoutResult = textLayoutResult,
+                topLeft = Offset(
+                    x = (drawScope.size.width - textLayoutResult.size.width) / 2,
+                    y = (drawScope.size.height - textLayoutResult.size.height) / 2
+                )
+            )
+        }
+        else -> {}
     }
 }
 

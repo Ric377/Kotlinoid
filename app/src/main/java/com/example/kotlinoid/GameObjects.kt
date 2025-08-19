@@ -36,5 +36,6 @@ data class Paddle(
 enum class GameStatus {
     READY,
     RUNNING,
+    PAUSED,
     GAME_OVER
 }
