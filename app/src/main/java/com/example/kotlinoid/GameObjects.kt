@@ -9,18 +9,18 @@ import androidx.compose.ui.graphics.Color
 data class Brick(
     val rect: RectF,
     val color: Color,
-    val isVisible: Boolean = true // <-- Изменили var на val
+    val isVisible: Boolean = true
 )
 
 /**
  * Представляет игровой мяч.
  */
 data class Ball(
-    val cx: Float, // <-- Изменили var на val
-    val cy: Float, // <-- Изменили var на val
+    val cx: Float,
+    val cy: Float,
     val radius: Float,
-    val dx: Float, // <-- Изменили var на val
-    val dy: Float  // <-- Изменили var на val
+    val dx: Float,
+    val dy: Float
 )
 
 /**
@@ -29,3 +29,12 @@ data class Ball(
 data class Paddle(
     val rect: RectF
 )
+
+/**
+ * Определяет текущее состояние игрового процесса.
+ */
+enum class GameStatus {
+    READY,
+    RUNNING,
+    GAME_OVER
+}

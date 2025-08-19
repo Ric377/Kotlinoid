@@ -4,6 +4,7 @@ import android.graphics.RectF
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +38,7 @@ data class GameState(
     val paddle: Paddle? = null,
     val score: Int = 0,
     val lives: Int = 3,
+    val status: GameStatus = GameStatus.READY,
     val gameInitialized: Boolean = false
 )
 
@@ -70,7 +72,7 @@ fun GameScreen() {
 
     LaunchedEffect(Unit) {
         while (true) {
-            if (gameState.gameInitialized) {
+            if (gameState.gameInitialized && gameState.status == GameStatus.RUNNING) {
                 gameState = updateGameState(gameState, canvasSize)
             }
             delay(16)
@@ -96,6 +98,13 @@ fun GameScreen() {
                     gameState = gameState.copy(paddle = newPaddle)
                 }
             }
+            .pointerInput(gameState.status) {
+                detectTapGestures {
+                    if (gameState.status == GameStatus.READY) {
+                        gameState = gameState.copy(status = GameStatus.RUNNING)
+                    }
+                }
+            }
     ) {
         if (!gameState.gameInitialized) {
             canvasSize = size
@@ -113,6 +122,8 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
     val paddle = currentState.paddle ?: return currentState
     var score = currentState.score
     var lives = currentState.lives
+
+    if (currentState.status != GameStatus.RUNNING) return currentState
 
     currentBall = currentBall.copy(
         cx = currentBall.cx + currentBall.dx,
@@ -132,7 +143,16 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
 
     if (currentBall.cy + currentBall.radius > canvasHeight) {
         lives--
-        currentBall = currentBall.copy(cx = canvasWidth / 2, cy = canvasHeight / 2)
+        if (lives <= 0) {
+            return currentState.copy(lives = 0, status = GameStatus.GAME_OVER)
+        } else {
+            val newBall = currentBall.copy(cx = canvasWidth / 2, cy = canvasHeight / 2)
+            return currentState.copy(
+                ball = newBall,
+                lives = lives,
+                status = GameStatus.READY
+            )
+        }
     }
 
     val ballRect = RectF(
@@ -228,13 +248,39 @@ private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: T
         topLeft = Offset(20f, 10f),
         style = TextStyle(fontSize = 20.sp, color = Color.Black)
     )
-
     drawScope.drawText(
         textMeasurer = textMeasurer,
         text = "Lives: ${gameState.lives}",
         topLeft = Offset(drawScope.size.width - 150f, 10f),
         style = TextStyle(fontSize = 20.sp, color = Color.Red)
     )
+
+    when (gameState.status) {
+        GameStatus.READY -> {
+            val textLayoutResult = textMeasurer.measure("Tap to Start")
+            drawScope.drawText(
+                textLayoutResult = textLayoutResult,
+                color = Color.Black,
+                topLeft = Offset(
+                    x = (drawScope.size.width - textLayoutResult.size.width) / 2,
+                    y = (drawScope.size.height - textLayoutResult.size.height) / 2
+                )
+            )
+        }
+        GameStatus.GAME_OVER -> {
+            drawScope.drawRect(color = Color.White.copy(alpha = 0.7f))
+            val textLayoutResult = textMeasurer.measure("Game Over")
+            drawScope.drawText(
+                textLayoutResult = textLayoutResult,
+                color = Color.Red,
+                topLeft = Offset(
+                    x = (drawScope.size.width - textLayoutResult.size.width) / 2,
+                    y = (drawScope.size.height - textLayoutResult.size.height) / 2
+                )
+            )
+        }
+        GameStatus.RUNNING -> {}
+    }
 }
 
 /**
