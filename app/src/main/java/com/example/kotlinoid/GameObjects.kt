@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Color
 data class Brick(
     val rect: RectF,
     val color: Color,
+    val hp: Int = 1,
     val isVisible: Boolean = true
 )
 
@@ -36,7 +37,9 @@ data class Paddle(
 enum class PowerUpType {
     WIDEN_PADDLE,
     EXTRA_LIFE,
-    MULTI_BALL
+    MULTI_BALL,
+    SHRINK_PADDLE,
+    SPEED_UP_BALL
 }
 
 /**

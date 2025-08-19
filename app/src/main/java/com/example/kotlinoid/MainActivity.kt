@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
 import com.example.kotlinoid.ui.theme.KotlinoidTheme
 import kotlinx.coroutines.delay
+import kotlin.math.abs
+import kotlin.math.sign
 import kotlin.random.Random
 
 /**
@@ -53,7 +55,8 @@ object AppColors {
         "textHint" to Color(0xFF757575),
         "button" to Color(0xFF424242),
         "buttonText" to Color(0xFFFFFFFF),
-        "flash" to Color.Yellow
+        "flash" to Color.Yellow,
+        "damage" to Color(0x80000000)
     )
 
     val DarkPalette = mapOf(
@@ -64,11 +67,15 @@ object AppColors {
         "textHint" to Color(0xFFBDBDBD),
         "button" to Color(0xFFE0E0E0),
         "buttonText" to Color(0xFF121212),
-        "flash" to Color.Yellow
+        "flash" to Color.Yellow,
+        "damage" to Color(0x80EEEEEE)
     )
 
-    val brickSet1 = listOf(Color(0xFFD32F2F), Color(0xFFD32F2F), Color(0xFFF57C00), Color(0xFFF57C00))
-    val brickSet2 = listOf(Color(0xFFFBC02D), Color(0xFFFBC02D), Color(0xFF388E3C), Color(0xFF388E3C))
+    val brickBlue = Color(0xFF1976D2)
+    val brickGreen = Color(0xFF388E3C)
+    val brickOrange = Color(0xFFF57C00)
+    val brickYellow = Color(0xFFFBC02D)
+    val brickRed = Color(0xFFD32F2F)
 }
 
 /**
@@ -76,36 +83,16 @@ object AppColors {
  */
 object Levels {
     val maps = listOf(
-        listOf(
-            "XXXXXXXXXX",
-            "X-X-XX-X-X",
-            "XXXXXXXXXX",
-            "X-X-XX-X-X",
-            "XXXXXXXXXX",
-            "X-X-XX-X-X",
-            "XXXXXXXXXX",
-            "X-X-XX-X-X"
-        ),
-        listOf(
-            "----XX----",
-            "---XXXX---",
-            "--XXXXXX--",
-            "-XXXXXXXX-",
-            "XXXXXXXXXX",
-            "---XXXX---",
-            "---XXXX---",
-            "---XXXX---"
-        ),
-        listOf(
-            "X-X-X-X-X-",
-            "-X-X-X-X-X",
-            "X-X-X-X-X-",
-            "-X-X-X-X-X",
-            "X-X-X-X-X-",
-            "-X-X-X-X-X",
-            "X-X-X-X-X-",
-            "-X-X-X-X-X"
-        )
+        listOf("XXXXXXXXXX", "XXXXXXXXXX", "X-XXXXXX-X", "X-XXXXXX-X", "XXXXXXXXXX", "XXXXXXXXXX"),
+        listOf("M-M-M-M-M-", "-M-M-M-M-M", "M-M-M-M-M-", "-M-M-M-M-M", "M-M-M-M-M-", "-M-M-M-M-M"),
+        listOf("H-H-H-H-H-", "H-H-H-H-H-", "--M-M-M--", "--M-M-M--", "---XXXX---", "---XXXX---"),
+        listOf("XXXXXXXXXX", "XMMMMMMMMX", "XMH H MHMX", "XMH H MHMX", "XMMMMMMMMX", "XXXXXXXXXX"),
+        listOf("H-M-X-X-M-H", "-H-M-X-M-H-", "--H-M-M-H--", "---H-H-H---", "----HHH----", "-----H-----"),
+        listOf("X-H-H-H-H-X", "X-H-H-H-H-X", "X-H-H-H-H-X", "-----------", "M-M-M-M-M-M", "M-M-M-M-M-M"),
+        listOf("HXXXXXXXXH", "HXXMMXXH", "HXMMMMXH", "HMMHHMMH", "HXMMMMXH", "HXXMMXXH", "HXXXXXXXXH"),
+        listOf("H M H M H M", " M H M H M ", "H M H M H M", " M H M H M ", "H M H M H M", " M H M H M "),
+        listOf("---H---H---", "--H-H-H-H--", "-H-H-H-H-H-", "H-H-H-H-H-H", "-H-H-H-H-H-", "--H-H-H-H--", "---H---H---"),
+        listOf("HHHHHHHHHH", "HMMMMMMMMH", "HMXXXXXXMH", "HMXHHXHMXH", "HMXHHXHMXH", "HMXXXXXXMH", "HMMMMMMMMH", "HHHHHHHHHH")
     )
 }
 
@@ -154,7 +141,7 @@ class MainActivity : ComponentActivity() {
  */
 @Composable
 fun GameScreen(colors: Map<String, Color>) {
-    var gameState by remember { mutableStateOf(initializeLevel(Size.Zero, 1)) }
+    var gameState by remember { mutableStateOf(initializeLevel(Size.Zero, 1, colors)) }
     var canvasSize by remember { mutableStateOf(Size.Zero) }
     val textMeasurer = rememberTextMeasurer()
     val context = LocalContext.current
@@ -166,7 +153,7 @@ fun GameScreen(colors: Map<String, Color>) {
     LaunchedEffect(Unit) {
         while (true) {
             if (gameState.gameInitialized && gameState.status == GameStatus.RUNNING) {
-                gameState = updateGameState(gameState, canvasSize)
+                gameState = updateGameState(gameState, canvasSize, colors)
             }
             delay(16)
         }
@@ -239,12 +226,12 @@ fun GameScreen(colors: Map<String, Color>) {
                                 gameState = if (nextLevel > Levels.maps.size && gameState.status != GameStatus.GAME_WON) {
                                     gameState.copy(status = GameStatus.GAME_WON)
                                 } else if (gameState.status != GameStatus.GAME_WON) {
-                                    initializeLevel(canvasSize, nextLevel).copy(
+                                    initializeLevel(canvasSize, nextLevel, colors).copy(
                                         score = gameState.score,
                                         lives = gameState.lives
                                     )
                                 } else {
-                                    initializeLevel(canvasSize, 1)
+                                    initializeLevel(canvasSize, 1, colors)
                                 }
                             }
                             GameStatus.GAME_OVER -> {
@@ -258,7 +245,7 @@ fun GameScreen(colors: Map<String, Color>) {
                                 val exitRect = Rect(exitButtonX, buttonY, exitButtonX + buttonWidth, buttonY + buttonHeight)
 
                                 if (restartRect.contains(offset)) {
-                                    gameState = initializeLevel(canvasSize, 1)
+                                    gameState = initializeLevel(canvasSize, 1, colors)
                                 } else if (exitRect.contains(offset)) {
                                     (context as? Activity)?.finish()
                                 }
@@ -270,7 +257,7 @@ fun GameScreen(colors: Map<String, Color>) {
     ) {
         if (!gameState.gameInitialized) {
             canvasSize = size
-            gameState = initializeLevel(size, 1)
+            gameState = initializeLevel(size, 1, colors)
         }
         drawGame(this, gameState, textMeasurer, colors, density)
     }
@@ -279,12 +266,12 @@ fun GameScreen(colors: Map<String, Color>) {
 /**
  * Обновляет состояние игры для следующего кадра.
  */
-private fun updateGameState(currentState: GameState, canvasSize: Size): GameState {
+private fun updateGameState(currentState: GameState, canvasSize: Size, colors: Map<String, Color>): GameState {
     var newBalls = currentState.balls.toMutableList()
     var paddle = currentState.paddle
     var score = currentState.score
     var lives = currentState.lives
-    var bricks = currentState.bricks.toMutableList()
+    var bricks = currentState.bricks.toList()
     var powerUps = currentState.powerUps.toMutableList()
     var activePowerUp = currentState.activePowerUp
     var powerUpEndTime = currentState.powerUpEndTime
@@ -294,9 +281,10 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
     val canvasHeight = canvasSize.height
     val powerUpAbsorptionTime = 200L
     val paddleFlashDuration = 350L
+    val maxBallSpeed = 15f
 
     if (activePowerUp != null && System.currentTimeMillis() > powerUpEndTime) {
-        if (activePowerUp == PowerUpType.WIDEN_PADDLE) {
+        if (activePowerUp == PowerUpType.WIDEN_PADDLE || activePowerUp == PowerUpType.SHRINK_PADDLE) {
             val paddleWidth = canvasWidth / 5
             val currentCenter = paddle.rect.centerX()
             paddle = paddle.copy(rect = RectF(currentCenter - paddleWidth / 2, paddle.rect.top, currentCenter + paddleWidth / 2, paddle.rect.bottom))
@@ -316,23 +304,36 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
         val ballRect = RectF(currentBall.cx - currentBall.radius, currentBall.cy - currentBall.radius, currentBall.cx + currentBall.radius, currentBall.cy + currentBall.radius)
         if (currentBall.dy > 0 && ballRect.intersect(paddle.rect)) {
             currentBall = currentBall.copy(dy = -currentBall.dy)
+            val speedMultiplier = 1.02f
+            var newDx = currentBall.dx * speedMultiplier
+            var newDy = currentBall.dy * speedMultiplier
+            if (abs(newDx) > maxBallSpeed) newDx = maxBallSpeed * sign(newDx)
+            if (abs(newDy) > maxBallSpeed) newDy = maxBallSpeed * sign(newDy)
+            currentBall = currentBall.copy(dx = newDx, dy = newDy)
         }
-        var brickHit = false
-        val newBricks = bricks.map { br ->
-            if (!brickHit && br.isVisible && ballRect.intersect(br.rect)) {
-                brickHit = true
-                score += 100
-                if (Random.nextInt(0, 10) < 3) {
-                    val powerUpType = PowerUpType.values().random()
-                    powerUps.add(PowerUp(rect = RectF(br.rect), type = powerUpType))
-                }
-                br.copy(isVisible = false)
-            } else {
-                br
+
+        var brickHitIndex: Int? = null
+        for ((index, br) in bricks.withIndex()) {
+            if (br.isVisible && ballRect.intersect(br.rect)) {
+                brickHitIndex = index
+                break
             }
-        }.toMutableList()
-        bricks = newBricks
-        if (brickHit) {
+        }
+
+        if (brickHitIndex != null) {
+            val hitBrick = bricks[brickHitIndex]
+            val newHp = hitBrick.hp - 1
+            if (newHp > 0) {
+                val damageColor = hitBrick.color.copy(alpha = hitBrick.color.alpha * 0.7f)
+                bricks = bricks.toMutableList().also { it[brickHitIndex] = hitBrick.copy(hp = newHp, color = damageColor) }
+            } else {
+                score += 100
+                if (Random.nextInt(0, 10) < 4) {
+                    val powerUpType = PowerUpType.values().random()
+                    powerUps.add(PowerUp(rect = RectF(hitBrick.rect), type = powerUpType))
+                }
+                bricks = bricks.toMutableList().also { it[brickHitIndex] = hitBrick.copy(isVisible = false) }
+            }
             currentBall = currentBall.copy(dy = -currentBall.dy)
         }
         if (currentBall.cy - currentBall.radius < canvasHeight) {
@@ -346,7 +347,7 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
         return if (lives <= 0) {
             currentState.copy(lives = 0, status = GameStatus.GAME_OVER, balls = emptyList(), powerUps = emptyList())
         } else {
-            initializeLevel(canvasSize, currentState.currentLevel).copy(lives = lives, score = score, status = GameStatus.READY, bricks = bricks.toList())
+            initializeLevel(canvasSize, currentState.currentLevel, colors).copy(lives = lives, score = score, status = GameStatus.READY, bricks = bricks.toList())
         }
     }
 
@@ -358,35 +359,32 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
             }
             continue
         }
-
-        val newRect = RectF(powerUp.rect)
-        newRect.offset(0f, 5f)
-
-        val paddleTop = paddle.rect.top
-        val paddleLeft = paddle.rect.left
-        val paddleRight = paddle.rect.right
-
+        val newRect = RectF(powerUp.rect); newRect.offset(0f, 5f)
+        val paddleTop = paddle.rect.top; val paddleLeft = paddle.rect.left; val paddleRight = paddle.rect.right
         if (newRect.bottom >= paddleTop && newRect.top < paddleTop + 20 && newRect.right > paddleLeft && newRect.left < paddleRight) {
             paddleFlashEndTime = System.currentTimeMillis() + paddleFlashDuration
-
-            val absorbedPowerUp = powerUp.copy(isBeingAbsorbed = true, absorptionStartTime = System.currentTimeMillis())
-            remainingPowerUps.add(absorbedPowerUp)
-
-            when(powerUp.type) {
+            remainingPowerUps.add(powerUp.copy(isBeingAbsorbed = true, absorptionStartTime = System.currentTimeMillis()))
+            when (powerUp.type) {
                 PowerUpType.WIDEN_PADDLE -> {
                     val paddleWidth = canvasWidth / 3
                     val currentCenter = paddle.rect.centerX()
-                    paddle = paddle.copy(rect = RectF(currentCenter - paddleWidth/2, paddle.rect.top, currentCenter + paddleWidth/2, paddle.rect.bottom))
+                    paddle = paddle.copy(rect = RectF(currentCenter - paddleWidth / 2, paddle.rect.top, currentCenter + paddleWidth / 2, paddle.rect.bottom))
                     activePowerUp = PowerUpType.WIDEN_PADDLE
                     powerUpEndTime = System.currentTimeMillis() + 10000L
                 }
-                PowerUpType.EXTRA_LIFE -> {
-                    lives++
-                }
+                PowerUpType.EXTRA_LIFE -> { lives++ }
                 PowerUpType.MULTI_BALL -> {
-                    if (newBalls.size < 5) {
-                        newBalls.add(newBalls.first().copy(dx = -newBalls.first().dx))
-                    }
+                    if (newBalls.size < 5) newBalls.add(newBalls.first().copy(dx = -newBalls.first().dx))
+                }
+                PowerUpType.SHRINK_PADDLE -> {
+                    val paddleWidth = canvasWidth / 8
+                    val currentCenter = paddle.rect.centerX()
+                    paddle = paddle.copy(rect = RectF(currentCenter - paddleWidth / 2, paddle.rect.top, currentCenter + paddleWidth / 2, paddle.rect.bottom))
+                    activePowerUp = PowerUpType.SHRINK_PADDLE
+                    powerUpEndTime = System.currentTimeMillis() + 10000L
+                }
+                PowerUpType.SPEED_UP_BALL -> {
+                    newBalls = newBalls.map { it.copy(dx = it.dx * 1.3f, dy = it.dy * 1.3f) }.toMutableList()
                 }
             }
         } else if (newRect.top < canvasHeight) {
@@ -410,7 +408,7 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
 /**
  * Инициализирует состояние игры для конкретного уровня.
  */
-private fun initializeLevel(canvasSize: Size, level: Int): GameState {
+private fun initializeLevel(canvasSize: Size, level: Int, colors: Map<String, Color>): GameState {
     val canvasWidth = canvasSize.width
     val canvasHeight = canvasSize.height
     val bricks = mutableListOf<Brick>()
@@ -420,23 +418,27 @@ private fun initializeLevel(canvasSize: Size, level: Int): GameState {
     }
 
     val levelMap = Levels.maps.getOrElse(level - 1) { Levels.maps.first() }
-
     val numRows = levelMap.size
-    val numBricksPerRow = levelMap[0].length
+    val numBricksPerRow = levelMap.getOrNull(0)?.length ?: 10
     val brickSpacing = canvasWidth * 0.01f
     val brickTopOffset = canvasHeight * 0.15f
     val spaceForBricks = canvasWidth - (numBricksPerRow + 1) * brickSpacing
     val brickWidth = spaceForBricks / numBricksPerRow
     val brickHeight = canvasHeight * 0.025f
-    val colors = AppColors.brickSet1 + AppColors.brickSet2
 
     var currentY = brickTopOffset
     for (i in 0 until numRows) {
         var currentX = brickSpacing
         for (j in 0 until numBricksPerRow) {
-            if (levelMap[i][j] == 'X') {
+            val char = levelMap.getOrNull(i)?.getOrNull(j)
+            if (char != null && char != '-') {
+                val (hp, color) = when (char) {
+                    'M' -> 2 to AppColors.brickGreen
+                    'H' -> 3 to AppColors.brickBlue
+                    else -> 1 to AppColors.brickOrange
+                }
                 val brickRect = Rect(left = currentX, top = currentY, right = currentX + brickWidth, bottom = currentY + brickHeight)
-                bricks.add(Brick(rect = brickRect.toRectF(), color = colors[i % colors.size]))
+                bricks.add(Brick(rect = brickRect.toRectF(), color = color, hp = hp))
             }
             currentX += brickWidth + brickSpacing
         }
@@ -451,16 +453,10 @@ private fun initializeLevel(canvasSize: Size, level: Int): GameState {
     val paddle = Paddle(rect = paddleRect.toRectF())
 
     val ballRadius = canvasWidth / 40
-    val ball = Ball(cx = canvasWidth / 2, cy = paddleY - ballRadius - 5, radius = ballRadius, dx = 8f, dy = -8f)
+    val baseSpeed = 12f + (level - 1) * 0.5f
+    val ball = Ball(cx = canvasWidth / 2, cy = paddleY - ballRadius - 5, radius = ballRadius, dx = baseSpeed, dy = -baseSpeed)
 
-    return GameState(
-        bricks = bricks,
-        balls = listOf(ball),
-        paddle = paddle,
-        currentLevel = level,
-        gameInitialized = true,
-        status = GameStatus.READY
-    )
+    return GameState(bricks = bricks, balls = listOf(ball), paddle = paddle, currentLevel = level, gameInitialized = true, status = GameStatus.READY)
 }
 
 /**
@@ -474,11 +470,7 @@ private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: T
             }
         }
         gameState.paddle.let { paddle ->
-            val paddleColor = if (System.currentTimeMillis() < gameState.paddleFlashEndTime) {
-                colors["flash"]!!
-            } else {
-                colors["paddle"]!!
-            }
+            val paddleColor = if (System.currentTimeMillis() < gameState.paddleFlashEndTime) colors["flash"]!! else colors["paddle"]!!
             drawScope.drawRoundRect(color = paddleColor, topLeft = Offset(paddle.rect.left, paddle.rect.top), size = Size(paddle.rect.width(), paddle.rect.height()), cornerRadius = CornerRadius(15f, 15f))
         }
         gameState.balls.forEach { ball ->
@@ -487,77 +479,48 @@ private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: T
         gameState.powerUps.forEach { powerUp ->
             drawPowerUp(drawScope, powerUp, colors)
         }
-
         val topOffset = 40f
-
         drawScope.drawText(textMeasurer = textMeasurer, text = "Score: ${gameState.score}", topLeft = Offset(40f, topOffset), style = TextStyle(fontSize = 20.sp, color = colors["textPrimary"]!!))
-
         val heartIcon = "❤️"
         val livesText = buildString { repeat(gameState.lives) { append(heartIcon) } }
         drawScope.drawText(textMeasurer = textMeasurer, text = livesText, topLeft = Offset(40f, topOffset + 65f), style = TextStyle(fontSize = 20.sp))
-
-        val iconLeft = drawScope.size.width - 80f
-        val iconTop = topOffset
-        val iconSize = 50f
-
+        val iconLeft = drawScope.size.width - 80f; val iconTop = topOffset; val iconSize = 50f
         if (gameState.status == GameStatus.RUNNING) {
             drawScope.drawRoundRect(colors["paddle"]!!, topLeft = Offset(iconLeft, iconTop), size = Size(15f, iconSize), cornerRadius = CornerRadius(5f, 5f))
             drawScope.drawRoundRect(colors["paddle"]!!, topLeft = Offset(iconLeft + 25f, iconTop), size = Size(15f, iconSize), cornerRadius = CornerRadius(5f, 5f))
         }
-
         if (gameState.status == GameStatus.PAUSED) {
-            val path = Path().apply {
-                moveTo(iconLeft, iconTop); lineTo(iconLeft, iconTop + iconSize); lineTo(iconLeft + iconSize * 0.8f, iconTop + iconSize / 2); close()
-            }
+            val path = Path().apply { moveTo(iconLeft, iconTop); lineTo(iconLeft, iconTop + iconSize); lineTo(iconLeft + iconSize * 0.8f, iconTop + iconSize / 2); close() }
             drawScope.drawPath(path, color = colors["paddle"]!!)
         }
-
-        val overlayAlpha = 0.8f
-        val center = Offset(drawScope.size.width / 2, drawScope.size.height / 2)
-
+        val overlayAlpha = 0.8f; val center = Offset(drawScope.size.width / 2, drawScope.size.height / 2)
         fun drawOverlayText(text: String, style: TextStyle) {
-            val layoutResult = textMeasurer.measure(text, style)
-            drawScope.drawText(layoutResult, topLeft = Offset(center.x - layoutResult.size.width / 2, center.y - layoutResult.size.height / 2))
+            val layoutResult = textMeasurer.measure(text, style); drawScope.drawText(layoutResult, topLeft = Offset(center.x - layoutResult.size.width / 2, center.y - layoutResult.size.height / 2))
         }
-
         fun drawCenteredText(text: String, style: TextStyle, yOffset: Float, xOffset: Float = 0f) {
-            val layoutResult = textMeasurer.measure(text, style)
-            drawScope.drawText(layoutResult, topLeft = Offset(center.x - layoutResult.size.width / 2 + xOffset, yOffset))
+            val layoutResult = textMeasurer.measure(text, style); drawScope.drawText(layoutResult, topLeft = Offset(center.x - layoutResult.size.width / 2 + xOffset, yOffset))
         }
-
         when (gameState.status) {
             GameStatus.READY -> {
                 drawCenteredText("Level ${gameState.currentLevel}", TextStyle(fontSize = 28.sp, color = colors["textHint"]!!), drawScope.size.height * 0.6f)
                 drawCenteredText("Tap to Start", TextStyle(fontSize = 28.sp, color = colors["textHint"]!!), drawScope.size.height * 0.65f)
             }
             GameStatus.GAME_OVER -> {
-                drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha))
-                drawOverlayText("Game Over", TextStyle(fontSize = 48.sp, color = colors["ball"]!!))
-
-                val buttonWidth = drawScope.size.width / 2.5f
-                val buttonHeight = 150f
-                val buttonY = drawScope.size.height * 0.6f
-                val restartButtonX = center.x - buttonWidth - 20f
-                val exitButtonX = center.x + 20f
-
+                drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha)); drawOverlayText("Game Over", TextStyle(fontSize = 48.sp, color = colors["ball"]!!))
+                val buttonWidth = drawScope.size.width / 2.5f; val buttonHeight = 150f; val buttonY = drawScope.size.height * 0.6f
+                val restartButtonX = center.x - buttonWidth - 20f; val exitButtonX = center.x + 20f
                 drawScope.drawRoundRect(colors["button"]!!, topLeft = Offset(restartButtonX, buttonY), size = Size(buttonWidth, buttonHeight), cornerRadius = CornerRadius(15f, 15f))
                 drawScope.drawRoundRect(colors["button"]!!, topLeft = Offset(exitButtonX, buttonY), size = Size(buttonWidth, buttonHeight), cornerRadius = CornerRadius(15f, 15f))
-
                 drawCenteredText("Restart", TextStyle(fontSize = 24.sp, color = colors["buttonText"]!!), buttonY + buttonHeight / 2 - 30, (restartButtonX - center.x) + buttonWidth / 2)
                 drawCenteredText("Exit", TextStyle(fontSize = 24.sp, color = colors["buttonText"]!!), buttonY + buttonHeight / 2 - 30, (exitButtonX - center.x) + buttonWidth / 2)
             }
-            GameStatus.PAUSED -> {
-                drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha))
-                drawOverlayText("Paused", TextStyle(fontSize = 48.sp, color = colors["textPrimary"]!!))
-            }
+            GameStatus.PAUSED -> { drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha)); drawOverlayText("Paused", TextStyle(fontSize = 48.sp, color = colors["textPrimary"]!!)) }
             GameStatus.LEVEL_COMPLETE -> {
-                drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha))
-                drawOverlayText("Level ${gameState.currentLevel} Complete!", TextStyle(fontSize = 36.sp, color = colors["textPrimary"]!!))
+                drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha)); drawOverlayText("Level ${gameState.currentLevel} Complete!", TextStyle(fontSize = 36.sp, color = colors["textPrimary"]!!))
                 drawCenteredText("Tap to continue", TextStyle(fontSize = 24.sp, color = colors["textHint"]!!), drawScope.size.height * 0.65f)
             }
             GameStatus.GAME_WON -> {
-                drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha))
-                drawOverlayText("You Win!", TextStyle(fontSize = 48.sp, color = AppColors.brickSet2[3]))
+                drawScope.drawRect(color = colors["background"]!!.copy(alpha = overlayAlpha)); drawOverlayText("You Win!", TextStyle(fontSize = 48.sp, color = AppColors.brickGreen))
                 drawCenteredText("Tap to play again", TextStyle(fontSize = 24.sp, color = colors["textHint"]!!), drawScope.size.height * 0.65f)
             }
             else -> {}
@@ -576,38 +539,43 @@ private fun drawPowerUp(drawScope: DrawScope, powerUp: PowerUp, colors: Map<Stri
     val powerUpAbsorptionTime = 200L
 
     var scale = 1f
-    if(powerUp.isBeingAbsorbed) {
+    if (powerUp.isBeingAbsorbed) {
         val elapsedTime = System.currentTimeMillis() - powerUp.absorptionStartTime
         scale = 1f - (elapsedTime.toFloat() / powerUpAbsorptionTime)
         scale = scale.coerceIn(0f, 1f)
     }
 
     drawScope.scale(scale, pivot = powerUpCenter) {
-        drawScope.drawCircle(color = colors["paddle"]!!.copy(alpha = 0.2f), radius = size / 2, center = powerUpCenter)
+        val iconColor = if (powerUp.type == PowerUpType.SHRINK_PADDLE || powerUp.type == PowerUpType.SPEED_UP_BALL) colors["ball"]!! else colors["paddle"]!!
+        drawScope.drawCircle(color = iconColor.copy(alpha = 0.2f), radius = size / 2, center = powerUpCenter)
         when (powerUp.type) {
             PowerUpType.WIDEN_PADDLE -> {
-                val padding = size * 0.2f
-                val y = powerUpCenter.y
-                drawLine(colors["paddle"]!!, start = Offset(center - size / 2 + padding, y), end = Offset(center + size / 2 - padding, y), strokeWidth = 8f, cap = StrokeCap.Round)
-                drawLine(colors["paddle"]!!, start = Offset(center - size / 2 + padding, y), end = Offset(center - size / 2 + padding * 2, y - padding), strokeWidth = 8f, cap = StrokeCap.Round)
-                drawLine(colors["paddle"]!!, start = Offset(center - size / 2 + padding, y), end = Offset(center - size / 2 + padding * 2, y + padding), strokeWidth = 8f, cap = StrokeCap.Round)
-                drawLine(colors["paddle"]!!, start = Offset(center + size / 2 - padding, y), end = Offset(center + size / 2 - padding * 2, y - padding), strokeWidth = 8f, cap = StrokeCap.Round)
-                drawLine(colors["paddle"]!!, start = Offset(center + size / 2 - padding, y), end = Offset(center + size / 2 - padding * 2, y + padding), strokeWidth = 8f, cap = StrokeCap.Round)
+                val padding = size * 0.2f; val y = powerUpCenter.y
+                drawLine(iconColor, start = Offset(center - size / 2 + padding, y), end = Offset(center + size / 2 - padding, y), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(iconColor, start = Offset(center - size / 2 + padding, y), end = Offset(center - size / 2 + padding * 2, y - padding), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(iconColor, start = Offset(center - size / 2 + padding, y), end = Offset(center - size / 2 + padding * 2, y + padding), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(iconColor, start = Offset(center + size / 2 - padding, y), end = Offset(center + size / 2 - padding * 2, y - padding), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(iconColor, start = Offset(center + size / 2 - padding, y), end = Offset(center + size / 2 - padding * 2, y + padding), strokeWidth = 8f, cap = StrokeCap.Round)
             }
             PowerUpType.EXTRA_LIFE -> {
-                val path = Path().apply {
-                    val heartSize = size * 0.5f
-                    moveTo(powerUpCenter.x, powerUpCenter.y + heartSize / 4)
-                    cubicTo(powerUpCenter.x + heartSize / 4, powerUpCenter.y, powerUpCenter.x + heartSize / 2, powerUpCenter.y - heartSize / 4, powerUpCenter.x, powerUpCenter.y - heartSize / 2)
-                    cubicTo(powerUpCenter.x - heartSize / 2, powerUpCenter.y - heartSize / 4, powerUpCenter.x - heartSize / 4, powerUpCenter.y, powerUpCenter.x, powerUpCenter.y + heartSize / 4)
-                }
+                val path = Path().apply { val heartSize = size * 0.5f; moveTo(powerUpCenter.x, powerUpCenter.y + heartSize / 4); cubicTo(powerUpCenter.x + heartSize / 4, powerUpCenter.y, powerUpCenter.x + heartSize / 2, powerUpCenter.y - heartSize / 4, powerUpCenter.x, powerUpCenter.y - heartSize / 2); cubicTo(powerUpCenter.x - heartSize / 2, powerUpCenter.y - heartSize / 4, powerUpCenter.x - heartSize / 4, powerUpCenter.y, powerUpCenter.x, powerUpCenter.y + heartSize / 4) }
                 drawPath(path, color = colors["ball"]!!)
             }
             PowerUpType.MULTI_BALL -> {
                 val y = powerUpCenter.y
-                drawCircle(colors["ball"]!!, radius = size / 4, center = Offset(center - size / 4, y))
-                drawCircle(colors["ball"]!!, radius = size / 4, center = Offset(center + size / 4, y))
-                drawCircle(colors["background"]!!, style = Stroke(width = 3f), radius = size / 4, center = Offset(center, y - size / 6))
+                drawCircle(colors["ball"]!!, radius = size / 4, center = Offset(center - size / 4, y)); drawCircle(colors["ball"]!!, radius = size / 4, center = Offset(center + size / 4, y)); drawCircle(colors["background"]!!, style = Stroke(width = 3f), radius = size / 4, center = Offset(center, y - size / 6))
+            }
+            PowerUpType.SHRINK_PADDLE -> {
+                val padding = size * 0.2f; val y = powerUpCenter.y
+                drawLine(iconColor, start = Offset(center - size / 2 + padding, y), end = Offset(center + size / 2 - padding, y), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(iconColor, start = Offset(center - size / 2 + padding * 2, y - padding), end = Offset(center - size / 2 + padding, y), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(iconColor, start = Offset(center - size / 2 + padding * 2, y + padding), end = Offset(center - size / 2 + padding, y), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(iconColor, start = Offset(center + size / 2 - padding * 2, y - padding), end = Offset(center + size / 2 - padding, y), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(iconColor, start = Offset(center + size / 2 - padding * 2, y + padding), end = Offset(center + size / 2 - padding, y), strokeWidth = 8f, cap = StrokeCap.Round)
+            }
+            PowerUpType.SPEED_UP_BALL -> {
+                val path = Path().apply { val s = size * 0.4f; moveTo(center - s / 2, top + s); lineTo(center, top + s / 2); lineTo(center - s / 2, top); moveTo(center + s / 2, top + s); lineTo(center + s, top + s / 2); lineTo(center + s / 2, top) }
+                drawPath(path, color = iconColor, style = Stroke(width = 8f, cap = StrokeCap.Round))
             }
         }
     }
