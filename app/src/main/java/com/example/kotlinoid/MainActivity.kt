@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -51,7 +52,8 @@ object AppColors {
         "textPrimary" to Color(0xFF424242),
         "textHint" to Color(0xFF757575),
         "button" to Color(0xFF424242),
-        "buttonText" to Color(0xFFFFFFFF)
+        "buttonText" to Color(0xFFFFFFFF),
+        "flash" to Color.Yellow
     )
 
     val DarkPalette = mapOf(
@@ -61,7 +63,8 @@ object AppColors {
         "textPrimary" to Color(0xFFFFFFFF),
         "textHint" to Color(0xFFBDBDBD),
         "button" to Color(0xFFE0E0E0),
-        "buttonText" to Color(0xFF121212)
+        "buttonText" to Color(0xFF121212),
+        "flash" to Color.Yellow
     )
 
     val brickSet1 = listOf(Color(0xFFD32F2F), Color(0xFFD32F2F), Color(0xFFF57C00), Color(0xFFF57C00))
@@ -120,7 +123,8 @@ data class GameState(
     val currentLevel: Int = 1,
     val gameInitialized: Boolean = false,
     val activePowerUp: PowerUpType? = null,
-    val powerUpEndTime: Long = 0L
+    val powerUpEndTime: Long = 0L,
+    val paddleFlashEndTime: Long = 0L
 )
 
 /**
@@ -284,9 +288,12 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
     var powerUps = currentState.powerUps.toMutableList()
     var activePowerUp = currentState.activePowerUp
     var powerUpEndTime = currentState.powerUpEndTime
+    var paddleFlashEndTime = currentState.paddleFlashEndTime
 
     val canvasWidth = canvasSize.width
     val canvasHeight = canvasSize.height
+    val powerUpAbsorptionTime = 200L
+    val paddleFlashDuration = 350L
 
     if (activePowerUp != null && System.currentTimeMillis() > powerUpEndTime) {
         if (activePowerUp == PowerUpType.WIDEN_PADDLE) {
@@ -300,25 +307,22 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
     val updatedBalls = mutableListOf<Ball>()
     for (ball in newBalls) {
         var currentBall = ball.copy(cx = ball.cx + ball.dx, cy = ball.cy + ball.dy)
-
         if (currentBall.cx - currentBall.radius < 0 || currentBall.cx + currentBall.radius > canvasWidth) {
             currentBall = currentBall.copy(dx = -currentBall.dx)
         }
         if (currentBall.cy - currentBall.radius < 0) {
             currentBall = currentBall.copy(dy = -currentBall.dy)
         }
-
         val ballRect = RectF(currentBall.cx - currentBall.radius, currentBall.cy - currentBall.radius, currentBall.cx + currentBall.radius, currentBall.cy + currentBall.radius)
         if (currentBall.dy > 0 && ballRect.intersect(paddle.rect)) {
             currentBall = currentBall.copy(dy = -currentBall.dy)
         }
-
         var brickHit = false
         val newBricks = bricks.map { br ->
             if (!brickHit && br.isVisible && ballRect.intersect(br.rect)) {
                 brickHit = true
                 score += 100
-                if (Random.nextInt(0, 10) < 3) { // 30% шанс на выпадение приза
+                if (Random.nextInt(0, 10) < 3) {
                     val powerUpType = PowerUpType.values().random()
                     powerUps.add(PowerUp(rect = RectF(br.rect), type = powerUpType))
                 }
@@ -328,11 +332,9 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
             }
         }.toMutableList()
         bricks = newBricks
-
         if (brickHit) {
             currentBall = currentBall.copy(dy = -currentBall.dy)
         }
-
         if (currentBall.cy - currentBall.radius < canvasHeight) {
             updatedBalls.add(currentBall)
         }
@@ -344,29 +346,39 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
         return if (lives <= 0) {
             currentState.copy(lives = 0, status = GameStatus.GAME_OVER, balls = emptyList(), powerUps = emptyList())
         } else {
-            initializeLevel(canvasSize, currentState.currentLevel).copy(
-                lives = lives,
-                score = score,
-                status = GameStatus.READY,
-                bricks = bricks.toList()
-            )
+            initializeLevel(canvasSize, currentState.currentLevel).copy(lives = lives, score = score, status = GameStatus.READY, bricks = bricks.toList())
         }
     }
 
     val remainingPowerUps = mutableListOf<PowerUp>()
-    for(powerUp in powerUps) {
+    for (powerUp in powerUps) {
+        if (powerUp.isBeingAbsorbed) {
+            if (System.currentTimeMillis() - powerUp.absorptionStartTime < powerUpAbsorptionTime) {
+                remainingPowerUps.add(powerUp)
+            }
+            continue
+        }
+
         val newRect = RectF(powerUp.rect)
         newRect.offset(0f, 5f)
-        var collected = false
-        if(newRect.intersect(paddle.rect)) {
-            collected = true
+
+        val paddleTop = paddle.rect.top
+        val paddleLeft = paddle.rect.left
+        val paddleRight = paddle.rect.right
+
+        if (newRect.bottom >= paddleTop && newRect.top < paddleTop + 20 && newRect.right > paddleLeft && newRect.left < paddleRight) {
+            paddleFlashEndTime = System.currentTimeMillis() + paddleFlashDuration
+
+            val absorbedPowerUp = powerUp.copy(isBeingAbsorbed = true, absorptionStartTime = System.currentTimeMillis())
+            remainingPowerUps.add(absorbedPowerUp)
+
             when(powerUp.type) {
                 PowerUpType.WIDEN_PADDLE -> {
                     val paddleWidth = canvasWidth / 3
                     val currentCenter = paddle.rect.centerX()
                     paddle = paddle.copy(rect = RectF(currentCenter - paddleWidth/2, paddle.rect.top, currentCenter + paddleWidth/2, paddle.rect.bottom))
                     activePowerUp = PowerUpType.WIDEN_PADDLE
-                    powerUpEndTime = System.currentTimeMillis() + 10000L // 10 секунд
+                    powerUpEndTime = System.currentTimeMillis() + 10000L
                 }
                 PowerUpType.EXTRA_LIFE -> {
                     lives++
@@ -377,9 +389,7 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
                     }
                 }
             }
-        }
-
-        if(!collected && newRect.top < canvasHeight) {
+        } else if (newRect.top < canvasHeight) {
             remainingPowerUps.add(powerUp.copy(rect = newRect))
         }
     }
@@ -393,7 +403,7 @@ private fun updateGameState(currentState: GameState, canvasSize: Size): GameStat
         }
     }
 
-    return currentState.copy(balls = newBalls, bricks = bricks, score = score, lives = lives, paddle = paddle, powerUps = remainingPowerUps, activePowerUp = activePowerUp, powerUpEndTime = powerUpEndTime)
+    return currentState.copy(balls = newBalls, bricks = bricks, score = score, lives = lives, paddle = paddle, powerUps = remainingPowerUps, activePowerUp = activePowerUp, powerUpEndTime = powerUpEndTime, paddleFlashEndTime = paddleFlashEndTime)
 }
 
 
@@ -464,13 +474,18 @@ private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: T
             }
         }
         gameState.paddle.let { paddle ->
-            drawScope.drawRoundRect(color = colors["paddle"]!!, topLeft = Offset(paddle.rect.left, paddle.rect.top), size = Size(paddle.rect.width(), paddle.rect.height()), cornerRadius = CornerRadius(15f, 15f))
+            val paddleColor = if (System.currentTimeMillis() < gameState.paddleFlashEndTime) {
+                colors["flash"]!!
+            } else {
+                colors["paddle"]!!
+            }
+            drawScope.drawRoundRect(color = paddleColor, topLeft = Offset(paddle.rect.left, paddle.rect.top), size = Size(paddle.rect.width(), paddle.rect.height()), cornerRadius = CornerRadius(15f, 15f))
         }
         gameState.balls.forEach { ball ->
             drawScope.drawCircle(color = colors["ball"]!!, radius = ball.radius, center = Offset(ball.cx, ball.cy))
         }
         gameState.powerUps.forEach { powerUp ->
-            drawPowerUp(drawScope, powerUp, colors, textMeasurer, density)
+            drawPowerUp(drawScope, powerUp, colors)
         }
 
         val topOffset = 40f
@@ -553,32 +568,46 @@ private fun drawGame(drawScope: DrawScope, gameState: GameState, textMeasurer: T
 /**
  * Отрисовывает иконку для падающего приза.
  */
-private fun drawPowerUp(drawScope: DrawScope, powerUp: PowerUp, colors: Map<String, Color>, textMeasurer: TextMeasurer, density: Density) {
-    with(density) {
-        val center = powerUp.rect.centerX()
-        val top = powerUp.rect.top
-        val size = powerUp.rect.width()
+private fun drawPowerUp(drawScope: DrawScope, powerUp: PowerUp, colors: Map<String, Color>) {
+    val center = powerUp.rect.centerX()
+    val top = powerUp.rect.top
+    val size = powerUp.rect.width()
+    val powerUpCenter = Offset(center, top + size / 2)
+    val powerUpAbsorptionTime = 200L
 
-        drawScope.drawCircle(color = colors["paddle"]!!.copy(alpha = 0.2f), radius = size, center = Offset(center, top + size / 2))
+    var scale = 1f
+    if(powerUp.isBeingAbsorbed) {
+        val elapsedTime = System.currentTimeMillis() - powerUp.absorptionStartTime
+        scale = 1f - (elapsedTime.toFloat() / powerUpAbsorptionTime)
+        scale = scale.coerceIn(0f, 1f)
+    }
 
+    drawScope.scale(scale, pivot = powerUpCenter) {
+        drawScope.drawCircle(color = colors["paddle"]!!.copy(alpha = 0.2f), radius = size / 2, center = powerUpCenter)
         when (powerUp.type) {
             PowerUpType.WIDEN_PADDLE -> {
                 val padding = size * 0.2f
-                drawScope.drawLine(colors["paddle"]!!, start = Offset(center - size / 2 + padding, top + size / 2), end = Offset(center + size / 2 - padding, top + size / 2), strokeWidth = 8f, cap = StrokeCap.Round)
-                drawScope.drawLine(colors["paddle"]!!, start = Offset(center - size / 2 + padding, top + size / 2), end = Offset(center - size / 2 + padding * 2, top + size / 2 - padding), strokeWidth = 8f, cap = StrokeCap.Round)
-                drawScope.drawLine(colors["paddle"]!!, start = Offset(center - size / 2 + padding, top + size / 2), end = Offset(center - size / 2 + padding * 2, top + size / 2 + padding), strokeWidth = 8f, cap = StrokeCap.Round)
-                drawScope.drawLine(colors["paddle"]!!, start = Offset(center + size / 2 - padding, top + size / 2), end = Offset(center + size / 2 - padding * 2, top + size / 2 - padding), strokeWidth = 8f, cap = StrokeCap.Round)
-                drawScope.drawLine(colors["paddle"]!!, start = Offset(center + size / 2 - padding, top + size / 2), end = Offset(center + size / 2 - padding * 2, top + size / 2 + padding), strokeWidth = 8f, cap = StrokeCap.Round)
+                val y = powerUpCenter.y
+                drawLine(colors["paddle"]!!, start = Offset(center - size / 2 + padding, y), end = Offset(center + size / 2 - padding, y), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(colors["paddle"]!!, start = Offset(center - size / 2 + padding, y), end = Offset(center - size / 2 + padding * 2, y - padding), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(colors["paddle"]!!, start = Offset(center - size / 2 + padding, y), end = Offset(center - size / 2 + padding * 2, y + padding), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(colors["paddle"]!!, start = Offset(center + size / 2 - padding, y), end = Offset(center + size / 2 - padding * 2, y - padding), strokeWidth = 8f, cap = StrokeCap.Round)
+                drawLine(colors["paddle"]!!, start = Offset(center + size / 2 - padding, y), end = Offset(center + size / 2 - padding * 2, y + padding), strokeWidth = 8f, cap = StrokeCap.Round)
             }
             PowerUpType.EXTRA_LIFE -> {
-                val style = TextStyle(fontSize = (size * 0.7).sp)
-                val layoutResult = textMeasurer.measure("❤️", style)
-                drawScope.drawText(layoutResult, topLeft = Offset(center - layoutResult.size.width / 2, top + size / 2 - layoutResult.size.height / 2))
+                val path = Path().apply {
+                    val heartSize = size * 0.5f
+                    moveTo(powerUpCenter.x, powerUpCenter.y + heartSize / 4)
+                    cubicTo(powerUpCenter.x + heartSize / 4, powerUpCenter.y, powerUpCenter.x + heartSize / 2, powerUpCenter.y - heartSize / 4, powerUpCenter.x, powerUpCenter.y - heartSize / 2)
+                    cubicTo(powerUpCenter.x - heartSize / 2, powerUpCenter.y - heartSize / 4, powerUpCenter.x - heartSize / 4, powerUpCenter.y, powerUpCenter.x, powerUpCenter.y + heartSize / 4)
+                }
+                drawPath(path, color = colors["ball"]!!)
             }
             PowerUpType.MULTI_BALL -> {
-                drawScope.drawCircle(colors["ball"]!!, radius = size / 4, center = Offset(center - size / 4, top + size / 2))
-                drawScope.drawCircle(colors["ball"]!!, radius = size / 4, center = Offset(center + size / 4, top + size / 2))
-                drawScope.drawCircle(colors["background"]!!, style = Stroke(width = 3f), radius = size / 4, center = Offset(center, top + size / 3))
+                val y = powerUpCenter.y
+                drawCircle(colors["ball"]!!, radius = size / 4, center = Offset(center - size / 4, y))
+                drawCircle(colors["ball"]!!, radius = size / 4, center = Offset(center + size / 4, y))
+                drawCircle(colors["background"]!!, style = Stroke(width = 3f), radius = size / 4, center = Offset(center, y - size / 6))
             }
         }
     }

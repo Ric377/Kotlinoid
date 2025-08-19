@@ -44,7 +44,9 @@ enum class PowerUpType {
  */
 data class PowerUp(
     val rect: RectF,
-    val type: PowerUpType
+    val type: PowerUpType,
+    val isBeingAbsorbed: Boolean = false,
+    val absorptionStartTime: Long = 0L
 )
 
 
