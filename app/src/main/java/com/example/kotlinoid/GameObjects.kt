@@ -31,6 +31,24 @@ data class Paddle(
 )
 
 /**
+ * Определяет типы бонусов, которые могут выпадать из кирпичей.
+ */
+enum class PowerUpType {
+    WIDEN_PADDLE,
+    EXTRA_LIFE,
+    MULTI_BALL
+}
+
+/**
+ * Представляет падающий бонус (приз).
+ */
+data class PowerUp(
+    val rect: RectF,
+    val type: PowerUpType
+)
+
+
+/**
  * Определяет текущее состояние игрового процесса.
  */
 enum class GameStatus {
