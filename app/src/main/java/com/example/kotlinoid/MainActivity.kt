@@ -148,6 +148,9 @@ fun GameScreen(colors: Map<String, Color>) {
     val textMeasurer = rememberTextMeasurer()
     val context = LocalContext.current
 
+    var tapCount by remember { mutableStateOf(0) }
+    var lastTapTime by remember { mutableStateOf(0L) }
+
     LaunchedEffect(Unit) {
         while (true) {
             if (gameState.gameInitialized && gameState.status == GameStatus.RUNNING) {
@@ -178,56 +181,79 @@ fun GameScreen(colors: Map<String, Color>) {
                 }
             }
             .pointerInput(gameState.status) {
-                detectTapGestures { offset ->
-                    val pauseIconLeft = size.width - 100f
-                    val pauseIconTop = 20f
-                    val isIconTapped = offset.x > pauseIconLeft && offset.y < pauseIconTop + 80f
+                detectTapGestures(
+                    onTap = { offset ->
+                        val pauseIconLeft = size.width - 100f
+                        val pauseIconTop = 20f
+                        val isIconTapped = offset.x > pauseIconLeft && offset.y < pauseIconTop + 80f
 
-                    when (gameState.status) {
-                        GameStatus.READY -> {
-                            gameState = gameState.copy(status = GameStatus.RUNNING)
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastTapTime < 400L) {
+                            tapCount++
+                        } else {
+                            tapCount = 1
                         }
-                        GameStatus.RUNNING -> {
-                            if (isIconTapped) {
-                                gameState = gameState.copy(status = GameStatus.PAUSED)
+                        lastTapTime = currentTime
+
+                        if (tapCount == 5) {
+                            tapCount = 0
+                            if (gameState.status == GameStatus.RUNNING) {
+                                val nextLevel = gameState.currentLevel + 1
+                                gameState = if (nextLevel > Levels.maps.size) {
+                                    gameState.copy(status = GameStatus.GAME_WON)
+                                } else {
+                                    gameState.copy(status = GameStatus.LEVEL_COMPLETE)
+                                }
+                                return@detectTapGestures
                             }
                         }
-                        GameStatus.PAUSED -> {
-                            if (isIconTapped) {
+
+                        when (gameState.status) {
+                            GameStatus.READY -> {
                                 gameState = gameState.copy(status = GameStatus.RUNNING)
                             }
-                        }
-                        GameStatus.LEVEL_COMPLETE, GameStatus.GAME_WON -> {
-                            val nextLevel = gameState.currentLevel + 1
-                            gameState = if (nextLevel > Levels.maps.size && gameState.status != GameStatus.GAME_WON) {
-                                gameState.copy(status = GameStatus.GAME_WON)
-                            } else if (gameState.status != GameStatus.GAME_WON) {
-                                initializeLevel(canvasSize, nextLevel).copy(
-                                    score = gameState.score,
-                                    lives = gameState.lives
-                                )
-                            } else {
-                                initializeLevel(canvasSize, 1)
+                            GameStatus.RUNNING -> {
+                                if (isIconTapped) {
+                                    gameState = gameState.copy(status = GameStatus.PAUSED)
+                                }
                             }
-                        }
-                        GameStatus.GAME_OVER -> {
-                            val buttonWidth = size.width / 2.5f
-                            val buttonHeight = 150f
-                            val buttonY = size.height * 0.6f
-                            val restartButtonX = size.width / 2 - buttonWidth - 20f
-                            val exitButtonX = size.width / 2 + 20f
+                            GameStatus.PAUSED -> {
+                                if (isIconTapped) {
+                                    gameState = gameState.copy(status = GameStatus.RUNNING)
+                                }
+                            }
+                            GameStatus.LEVEL_COMPLETE, GameStatus.GAME_WON -> {
+                                val nextLevel = gameState.currentLevel + 1
+                                gameState = if (nextLevel > Levels.maps.size && gameState.status != GameStatus.GAME_WON) {
+                                    gameState.copy(status = GameStatus.GAME_WON)
+                                } else if (gameState.status != GameStatus.GAME_WON) {
+                                    initializeLevel(canvasSize, nextLevel).copy(
+                                        score = gameState.score,
+                                        lives = gameState.lives
+                                    )
+                                } else {
+                                    initializeLevel(canvasSize, 1)
+                                }
+                            }
+                            GameStatus.GAME_OVER -> {
+                                val buttonWidth = size.width / 2.5f
+                                val buttonHeight = 150f
+                                val buttonY = size.height * 0.6f
+                                val restartButtonX = size.width / 2 - buttonWidth - 20f
+                                val exitButtonX = size.width / 2 + 20f
 
-                            val restartRect = Rect(restartButtonX, buttonY, restartButtonX + buttonWidth, buttonY + buttonHeight)
-                            val exitRect = Rect(exitButtonX, buttonY, exitButtonX + buttonWidth, buttonY + buttonHeight)
+                                val restartRect = Rect(restartButtonX, buttonY, restartButtonX + buttonWidth, buttonY + buttonHeight)
+                                val exitRect = Rect(exitButtonX, buttonY, exitButtonX + buttonWidth, buttonY + buttonHeight)
 
-                            if (restartRect.contains(offset)) {
-                                gameState = initializeLevel(canvasSize, 1)
-                            } else if (exitRect.contains(offset)) {
-                                (context as? Activity)?.finish()
+                                if (restartRect.contains(offset)) {
+                                    gameState = initializeLevel(canvasSize, 1)
+                                } else if (exitRect.contains(offset)) {
+                                    (context as? Activity)?.finish()
+                                }
                             }
                         }
                     }
-                }
+                )
             }
     ) {
         if (!gameState.gameInitialized) {
