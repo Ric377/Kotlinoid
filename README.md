@@ -2,7 +2,7 @@
 
 Это классическая игра в жанре "Арканоид", созданная с нуля на языке Kotlin с использованием декларативного UI-фреймворка Jetpack Compose. Проект является демонстрацией реализации игровой логики, управления состояниями, кастомной отрисовки на Canvas и создания простого, но увлекательного игрового процесса.
 
-[<img src="screenshots/screenshot.jpg" alt="Скриншот игры" width="200"/>](screenshots/screenshot.jpg)
+<a href="screenshots/screenshot.jpg"><img src="screenshots/screenshot.jpg" alt="Скриншот игры" width="200"/></a>
 
 ## Основные возможности
 
